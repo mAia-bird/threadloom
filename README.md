@@ -50,7 +50,7 @@ your own computer; your tokens never leave your machine.
 ## Quick start
 
 ```bash
-git clone https://github.com/mayamastra/threadloom.git
+git clone https://github.com/mAia-bird/threadloom.git
 cd threadloom
 python run.py
 ```

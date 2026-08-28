@@ -49,7 +49,7 @@ Threadloom — крошечный личный Telegram-бот. Ты присы�
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/mayamastra/threadloom.git
+git clone https://github.com/mAia-bird/threadloom.git
 cd threadloom
 python run.py
 ```

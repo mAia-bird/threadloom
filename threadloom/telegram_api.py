@@ -67,6 +67,21 @@ class Telegram:
     def answer_callback_query(self, callback_id, text: str | None = None) -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text}, timeout=15)
 
+    def get_file(self, file_id: str) -> dict:
+        return self._call("getFile", {"file_id": file_id}, timeout=15)
+
+    def download_file(self, file_path: str) -> bytes:
+        """Download a file previously located with ``get_file``. The URL embeds
+        the bot token, so the bytes are fetched here and never shared as a link."""
+        url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            raise TelegramError(f"file download → HTTP {e.code}")
+        except urllib.error.URLError as e:
+            raise TelegramError(f"file download → network error: {e.reason}")
+
 
 def button(text: str, callback_data: str) -> dict:
     return {"text": text, "callback_data": callback_data}

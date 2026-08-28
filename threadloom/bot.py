@@ -9,7 +9,7 @@ import html
 import logging
 import time
 
-from . import threads_api
+from . import imagehost, threads_api
 from .config import Config
 from .i18n import t
 from .splitter import split_thread
@@ -42,7 +42,7 @@ def make_thread(cfg: Config, text: str) -> list[str]:
     return posts
 
 
-def render_preview(cfg: Config, posts: list[str]) -> str:
+def render_preview(cfg: Config, posts: list[str], has_photo: bool = False) -> str:
     """Human-readable preview of the thread, HTML-escaped for Telegram."""
     marks = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     sep = "\n\n———\n\n"
@@ -69,7 +69,10 @@ def render_preview(cfg: Config, posts: list[str]) -> str:
         if truncated:
             break
     body = sep.join(blocks)
-    return t("bot_preview", cfg.lang, n=len(posts), body=body)
+    if has_photo:
+        note = t("bot_photo_note", cfg.lang)
+        body = f"{note}\n\n{body}" if body else note
+    return t("bot_preview", cfg.lang, n=max(len(posts), 1), body=body)
 
 
 def preview_buttons(cfg: Config, key: int) -> list:
@@ -83,7 +86,9 @@ def preview_buttons(cfg: Config, key: int) -> list:
 def _handle_message(tg: Telegram, cfg: Config, msg: dict) -> None:
     chat_id = msg["chat"]["id"]
     from_id = str(msg.get("from", {}).get("id", ""))
-    text = (msg.get("text") or "").strip()
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    sizes = msg.get("photo") or []
+    photo_id = sizes[-1]["file_id"] if sizes else None  # sizes are sorted, last is largest
 
     if from_id != str(cfg.owner_id):
         tg.send_message(chat_id, t("bot_not_owner", cfg.lang, uid=from_id))
@@ -95,20 +100,30 @@ def _handle_message(tg: Telegram, cfg: Config, msg: dict) -> None:
     if text.startswith("/help"):
         tg.send_message(chat_id, t("bot_help", cfg.lang))
         return
-    if not text:
+    if not text and not photo_id:
         return
 
     thinking = tg.send_message(chat_id, t("bot_cutting", cfg.lang))
     key = thinking["message_id"]
     try:
-        posts = make_thread(cfg, text)
-        if not posts:
+        posts = make_thread(cfg, text) if text else []
+        if not posts and not photo_id:
             raise ValueError("empty")
     except Exception as e:  # noqa: BLE001
         tg.edit_message_text(chat_id, key, t("bot_cut_failed", cfg.lang, err=html.escape(str(e))))
         return
-    _pending[key] = {"posts": posts, "source": text}
-    tg.edit_message_text(chat_id, key, render_preview(cfg, posts), preview_buttons(cfg, key))
+    _pending[key] = {"posts": posts, "source": text, "photo": photo_id}
+    tg.edit_message_text(chat_id, key, render_preview(cfg, posts, has_photo=bool(photo_id)),
+                         preview_buttons(cfg, key))
+
+
+def _prepare_photo(tg: Telegram, file_id: str) -> str:
+    """Fetch the photo from Telegram and host it briefly at a public URL that
+    Meta can fetch — never the Telegram file URL, which embeds the bot token."""
+    info = tg.get_file(file_id)
+    data = tg.download_file(info["file_path"])
+    name = info["file_path"].rsplit("/", 1)[-1] or "photo.jpg"
+    return imagehost.upload_temporary(data, name)
 
 
 def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
@@ -138,11 +153,13 @@ def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
         return
 
     if action == "recut":
-        if entry.get("published"):
-            return  # part of the thread is already live — re-splitting would desync it
+        if entry.get("published") or not entry["source"]:
+            return  # already partly live, or a bare photo — nothing to re-split
         posts = make_thread(cfg, entry["source"])
         entry["posts"] = posts
-        tg.edit_message_text(chat_id, message_id, render_preview(cfg, posts), preview_buttons(cfg, key))
+        tg.edit_message_text(chat_id, message_id,
+                             render_preview(cfg, posts, has_photo=bool(entry.get("photo"))),
+                             preview_buttons(cfg, key))
         return
 
     if action == "pub":
@@ -152,8 +169,14 @@ def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
         tg.edit_message_text(chat_id, message_id, t("bot_publishing", cfg.lang))
         published = entry.setdefault("published", [])
         try:
+            image_url = None
+            if entry.get("photo") and not published:
+                # Uploaded at publish time (the hosted copy lives only ~1 hour),
+                # and only while the root post isn't live yet.
+                image_url = _prepare_photo(tg, entry["photo"])
             _ids, permalink = threads_api.publish_thread(
-                entry["posts"], cfg.threads_user_id, cfg.threads_token, published)
+                entry["posts"], cfg.threads_user_id, cfg.threads_token, published,
+                image_url=image_url)
         except Exception as e:  # noqa: BLE001
             if published:
                 # Part of the thread is live; Publish resumes from the next post
@@ -170,7 +193,7 @@ def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
         _pending.pop(key, None)
         link = permalink or ""
         tg.edit_message_text(chat_id, message_id,
-                             t("bot_published", cfg.lang, n=len(entry["posts"]), link=html.escape(link)))
+                             t("bot_published", cfg.lang, n=len(_ids), link=html.escape(link)))
 
 
 def run() -> None:
@@ -201,7 +224,7 @@ def run() -> None:
         for upd in updates:
             offset = upd["update_id"] + 1
             try:
-                if "message" in upd and "text" in upd["message"]:
+                if "message" in upd and ("text" in upd["message"] or "photo" in upd["message"]):
                     _handle_message(tg, cfg, upd["message"])
                 elif "callback_query" in upd:
                     _handle_callback(tg, cfg, upd["callback_query"])

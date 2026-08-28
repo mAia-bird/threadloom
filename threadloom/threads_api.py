@@ -62,7 +62,8 @@ def _wait_container(container_id: str, token: str, attempts: int = 10) -> None:
 
 
 def publish_thread(texts: list[str], user_id: str, token: str,
-                   published: list[str] | None = None) -> tuple[list[str], str]:
+                   published: list[str] | None = None,
+                   image_url: str | None = None) -> tuple[list[str], str]:
     """Publish ``texts`` as a thread: root + chained replies.
 
     ``published`` holds the ids of posts already live from an earlier attempt
@@ -70,10 +71,17 @@ def publish_thread(texts: list[str], user_id: str, token: str,
     over. The list is mutated in place as each post goes live, so the caller
     keeps the progress even when this raises.
 
+    ``image_url`` (optional) is a public URL of a photo to attach to the root
+    post. Meta fetches and re-hosts the image at container creation, so the
+    URL only needs to stay alive for the duration of this call.
+
     Returns (list of published post ids, permalink of the root post).
     """
     if not texts:
-        raise ThreadsError("Empty thread — nothing to publish.")
+        if image_url:
+            texts = [""]  # a bare photo: root post is the image, no caption
+        else:
+            raise ThreadsError("Empty thread — nothing to publish.")
     for i, txt in enumerate(texts, 1):
         if len(txt) > MAX_LEN:
             raise ThreadsError(f"Post {i} is longer than {MAX_LEN} chars ({len(txt)}) — re-split.")
@@ -85,12 +93,18 @@ def publish_thread(texts: list[str], user_id: str, token: str,
         if i < len(ids):
             continue  # already live from a previous attempt
         params = {"media_type": "TEXT", "text": text, "access_token": token}
+        if i == 0 and image_url:
+            params["media_type"] = "IMAGE"
+            params["image_url"] = image_url
+        if not text:
+            del params["text"]
         if ids:
             params["reply_to_id"] = ids[-1]
         container = _call("POST", f"{GRAPH}/{user_id}/threads", params)
         if "id" not in container:
             raise ThreadsError(f"Post {i + 1}: container was not created — {container}")
-        _wait_container(container["id"], token)
+        # Image containers process longer than text ones — give them more time.
+        _wait_container(container["id"], token, attempts=30 if "image_url" in params else 10)
         pub = _call("POST", f"{GRAPH}/{user_id}/threads_publish",
                     {"creation_id": container["id"], "access_token": token})
         if "id" not in pub:

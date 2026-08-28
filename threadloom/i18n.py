@@ -1,7 +1,7 @@
 """Bilingual strings (English / Russian) for the wizard and the bot.
 
 Every user-facing string lives here so the whole tool speaks one language,
-chosen once during setup and stored as ``LANG`` in ``.env``.
+chosen once during setup and stored as ``LANG_UI`` in ``.env``.
 
 Usage:
     from .i18n import t
@@ -240,12 +240,16 @@ S = {
               "📤  Publish to Threads\n"
               "✂️  Re-split\n"
               "✖️  Cancel\n\n"
+              "You can also send a photo (with or without a caption) — it becomes "
+              "the first post of the thread.\n\n"
               "That's it. Long posts become a tidy thread automatically.",
         "ru": "Пришли пост обычным сообщением. Я нарежу его на куски до 500 знаков "
               "(корневой пост + реплаи) и покажу превью с кнопками:\n\n"
               "📤  Опубликовать в Threads\n"
               "✂️  Перенарезать\n"
               "✖️  Отмена\n\n"
+              "Можно прислать и фото (с подписью или без) — оно станет первым "
+              "постом треда.\n\n"
               "Вот и всё. Длинные посты сами превращаются в аккуратный тред.",
     },
     "bot_not_owner": {
@@ -253,6 +257,10 @@ S = {
               "won't publish for you.",
         "ru": "Это личный бот Threadloom. Твой ID {uid} — не его владелец, публиковать он "
               "для тебя не будет.",
+    },
+    "bot_photo_note": {
+        "en": "📷 The photo will be attached to the first post.",
+        "ru": "📷 Фото будет прикреплено к первому посту.",
     },
     "bot_cutting": {
         "en": "✂️ Splitting into a thread…",

@@ -34,6 +34,8 @@ your own computer; your tokens never leave your machine.
   write; Threads is where the thread goes.
 - ✂️ **Automatic thread-splitting.** Long posts become a tidy thread that respects
   paragraphs and sentences. No manual chopping at 500 characters.
+- 📷 **Photos too.** Send a photo (with or without a caption) and it becomes the
+  first post of the thread. See [how photos travel](#how-photos-travel) below.
 - 🔒 **Private by design.** Only *your* Telegram account can drive the bot.
 - 🧰 **Zero setup pain.** `python run.py` launches an interactive wizard that
   creates the bot, learns your ID automatically, and validates every token.
@@ -138,11 +140,31 @@ Then, in Telegram:
 
 - **Send any post** as a normal message → the bot replies with a thread preview and
   buttons.
+- **Send a photo** (optionally with a caption) → the photo becomes the first post;
+  a long caption continues as text replies.
 - **📤 Publish to Threads** — posts the thread; you get back a link to the live thread.
 - **✂️ Re-split** — splits the same post again (handy after you toggle an AI model).
 - **✖️ Cancel** — throws the preview away.
 
 Commands: `/start`, `/help`.
+
+### How photos travel
+
+The Threads API can't accept an image file directly — it only takes a **public
+URL** that Meta's servers fetch. Handing Meta the Telegram file URL would be a
+security hole (that URL contains your bot token), so Threadloom does this instead:
+
+1. downloads the photo from Telegram locally,
+2. uploads it anonymously to **[Litterbox](https://litterbox.catbox.moe)**
+   (catbox.moe's temporary host — no account, no API key),
+3. gives that temporary URL to Threads; Meta copies the image to its own CDN
+   within seconds,
+4. the Litterbox copy **self-destructs after 1 hour**.
+
+So the photo is only ever public in two places: briefly on Litterbox, and then in
+your published Threads post — where you were publishing it anyway. Your bot token
+never leaves your machine. If you'd rather not route photos through a third-party
+host at all, simply don't send photos — text posts never touch it.
 
 ### Keeping it running
 
@@ -198,6 +220,7 @@ Small and readable — four moving parts, all standard library:
 | `threadloom/telegram_api.py` | Minimal Telegram Bot API client (long polling). |
 | `threadloom/threads_api.py` | Publishes a thread via the Threads Graph API. |
 | `threadloom/splitter.py` | The built-in thread splitter (paragraphs → sentences → words). |
+| `threadloom/imagehost.py` | Anonymous 1-hour photo hosting (Litterbox) for image posts. |
 | `threadloom/llm.py` | Optional AI splitter (OpenAI-compatible / Anthropic). |
 | `threadloom/bot.py` | Ties it together: preview, buttons, publish. |
 | `threadloom/setup_wizard.py` | The interactive first-run setup. |

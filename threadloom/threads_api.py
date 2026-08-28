@@ -61,8 +61,14 @@ def _wait_container(container_id: str, token: str, attempts: int = 10) -> None:
     raise ThreadsError("Threads is taking too long to prepare the post — try again.")
 
 
-def publish_thread(texts: list[str], user_id: str, token: str) -> tuple[list[str], str]:
+def publish_thread(texts: list[str], user_id: str, token: str,
+                   published: list[str] | None = None) -> tuple[list[str], str]:
     """Publish ``texts`` as a thread: root + chained replies.
+
+    ``published`` holds the ids of posts already live from an earlier attempt
+    that failed partway; publishing resumes after them instead of starting
+    over. The list is mutated in place as each post goes live, so the caller
+    keeps the progress even when this raises.
 
     Returns (list of published post ids, permalink of the root post).
     """
@@ -74,8 +80,10 @@ def publish_thread(texts: list[str], user_id: str, token: str) -> tuple[list[str
     if not user_id or not token:
         raise ThreadsError("Threads is not connected (missing THREADS_USER_ID / THREADS_ACCESS_TOKEN).")
 
-    ids: list[str] = []
+    ids = published if published is not None else []
     for i, text in enumerate(texts):
+        if i < len(ids):
+            continue  # already live from a previous attempt
         params = {"media_type": "TEXT", "text": text, "access_token": token}
         if ids:
             params["reply_to_id"] = ids[-1]

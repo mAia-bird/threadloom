@@ -45,13 +45,30 @@ def make_thread(cfg: Config, text: str) -> list[str]:
 def render_preview(cfg: Config, posts: list[str]) -> str:
     """Human-readable preview of the thread, HTML-escaped for Telegram."""
     marks = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    blocks = []
+    sep = "\n\n———\n\n"
+    blocks: list[str] = []
+    used = 0
     for i, p in enumerate(posts):
         mark = marks[i] if i < len(marks) else f"[{i + 1}]"
-        blocks.append(f"{mark} <i>({len(p)}/500)</i>\n{html.escape(p)}")
-    body = "\n\n———\n\n".join(blocks)
-    if len(body) > _MAX_PREVIEW:
-        body = body[:_MAX_PREVIEW] + "\n\n…"
+        head = f"{mark} <i>({len(p)}/500)</i>\n"
+        room = _MAX_PREVIEW - used - (len(sep) if blocks else 0) - len(head)
+        if room <= 0:
+            blocks.append("…")
+            break
+        text = html.escape(p)
+        truncated = len(text) > room
+        if truncated:
+            # Trim the raw text, never the escaped form — a blind cut could
+            # split an entity or leave an unclosed tag and break the message.
+            raw = p[:room]
+            while raw and len(html.escape(raw)) > room - 1:
+                raw = raw[:-16] if len(raw) > 16 else raw[:-1]
+            text = html.escape(raw) + "…"
+        blocks.append(head + text)
+        used += (len(sep) if len(blocks) > 1 else 0) + len(blocks[-1])
+        if truncated:
+            break
+    body = sep.join(blocks)
     return t("bot_preview", cfg.lang, n=len(posts), body=body)
 
 
@@ -121,6 +138,8 @@ def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
         return
 
     if action == "recut":
+        if entry.get("published"):
+            return  # part of the thread is already live — re-splitting would desync it
         posts = make_thread(cfg, entry["source"])
         entry["posts"] = posts
         tg.edit_message_text(chat_id, message_id, render_preview(cfg, posts), preview_buttons(cfg, key))
@@ -131,13 +150,22 @@ def _handle_callback(tg: Telegram, cfg: Config, cq: dict) -> None:
             tg.edit_message_text(chat_id, message_id, t("bot_no_threads", cfg.lang))
             return
         tg.edit_message_text(chat_id, message_id, t("bot_publishing", cfg.lang))
+        published = entry.setdefault("published", [])
         try:
             _ids, permalink = threads_api.publish_thread(
-                entry["posts"], cfg.threads_user_id, cfg.threads_token)
+                entry["posts"], cfg.threads_user_id, cfg.threads_token, published)
         except Exception as e:  # noqa: BLE001
-            tg.edit_message_text(chat_id, message_id,
-                                 t("bot_publish_failed", cfg.lang, err=html.escape(str(e))),
-                                 preview_buttons(cfg, key))
+            if published:
+                # Part of the thread is live; Publish resumes from the next post
+                # instead of starting over (no Re-split — that would desync it).
+                text = t("bot_publish_partial", cfg.lang, done=len(published),
+                         n=len(entry["posts"]), err=html.escape(str(e)))
+                buttons = [[button(t("bot_btn_publish", cfg.lang), f"pub:{key}")],
+                           [button(t("bot_btn_cancel", cfg.lang), f"cancel:{key}")]]
+            else:
+                text = t("bot_publish_failed", cfg.lang, err=html.escape(str(e)))
+                buttons = preview_buttons(cfg, key)
+            tg.edit_message_text(chat_id, message_id, text, buttons)
             return
         _pending.pop(key, None)
         link = permalink or ""

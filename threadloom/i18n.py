@@ -281,6 +281,14 @@ S = {
         "en": "❌ Publishing failed: {err}",
         "ru": "❌ Публикация не удалась: {err}",
     },
+    "bot_publish_partial": {
+        "en": "❌ Publishing stopped after {done} of {n} post(s): {err}\n\n"
+              "The first {done} post(s) are already live. Tap “Publish” to "
+              "continue from the next post, or “Cancel” to leave it as is.",
+        "ru": "❌ Публикация оборвалась после {done} из {n}: {err}\n\n"
+              "Первые {done} пост(ов) уже опубликованы. Нажми «Опубликовать», "
+              "чтобы продолжить со следующего, или «Отмена», чтобы оставить как есть.",
+    },
     "bot_no_threads": {
         "en": "⚠️ Threads isn't connected yet. Add THREADS_ACCESS_TOKEN to .env "
               "(or re-run: python run.py setup).",
